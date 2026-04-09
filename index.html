@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Incidencia Delictiva · SESNSP</title>
+<title>Incidencia Delictiva · RNID / SESNSP</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Figtree:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0b0d14;--surface:#13151f;--surface2:#1a1d2e;--border:#252840;--accent:#e8453c;--accent2:#f59e2e;--accent3:#3b8cf8;--text:#eef0f8;--muted:#7b7f9e;--success:#22c55e}
@@ -178,8 +179,9 @@ tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
   <div class="header-right">
     <div class="header-meta">
       <span class="status-dot" id="statusDot"></span>
-      <span id="statusText">Sin datos cargados</span><br>
-      Secretariado Ejecutivo del SNSP
+      <span id="statusText">Sin datos cargados</span>
+      <span id="fmtBadge" style="display:none;margin-left:6px;background:rgba(245,158,46,.15);border:1px solid rgba(245,158,46,.4);color:#f59e2e;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:1px;padding:2px 7px;border-radius:4px;vertical-align:middle"></span><br>
+      RNID 2026 / SESNSP · SSPC
     </div>
     <button class="btn-pdf no-print" onclick="exportPDF()" style="display:none" id="btnPDF">⬇ Exportar PDF</button>
   </div>
@@ -190,11 +192,11 @@ tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
   <div class="upload-card" id="dropZone">
     <div class="upload-icon">📂</div>
     <h2>Cargar datos SESNSP</h2>
-    <p>Arrastra el archivo de incidencia delictiva del<br><strong>Secretariado Ejecutivo del SNSP</strong><br>Fuero Común o Federal · Estatal o <strong>Municipal</strong></p>
+    <p>Arrastra el archivo de incidencia delictiva del<br><strong>Secretariado Ejecutivo del SNSP / SSPC</strong><br>Fuero Común · Estatal o Municipal · <strong>RNID 2026</strong> o formato clásico</p>
     <button class="btn-upload" onclick="document.getElementById('fileInput').click()">Seleccionar archivo</button>
-    <div class="format-tags"><span class="tag">.XLSX</span><span class="tag">.XLS</span><span class="tag">.CSV</span></div>
-    <div class="file-hint">Compatible con archivos de incidencia estatal y municipal</div>
-    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+    <div class="format-tags"><span class="tag">.ZIP</span><span class="tag">.CSV</span><span class="tag">.XLSX</span><span class="tag">.XLS</span></div>
+    <div class="file-hint">Compatible con RNID-Delitos_Estatal-2026 y archivos históricos SESNSP</div>
+    <input type="file" id="fileInput" accept=".zip,.xlsx,.xls,.csv">
   </div>
 </section>
 
@@ -395,43 +397,86 @@ function newFile() {
 
 function processFile(file) {
   showLoading(true);
+  const name = file.name.toLowerCase();
+
+  // ── ZIP: extract first CSV/XLSX inside ──
+  if (name.endsWith('.zip')) {
+    const reader = new FileReader();
+    reader.onload = async e => {
+      try {
+        const zip = await JSZip.loadAsync(e.target.result);
+        // Find first CSV or XLSX inside
+        const entries = Object.keys(zip.files).filter(n => /\.(csv|xlsx|xls)$/i.test(n) && !zip.files[n].dir);
+        if (!entries.length) throw new Error('El ZIP no contiene archivos CSV o XLSX.');
+        const innerName = entries[0];
+        const isCSV = /\.csv$/i.test(innerName);
+        const content = await zip.files[innerName].async(isCSV ? 'string' : 'arraybuffer');
+        const innerFile = { name: innerName };
+        processContent(content, innerFile, isCSV);
+      } catch(err) { showToast('Error ZIP: ' + err.message, 'error'); showLoading(false); }
+    };
+    reader.onerror = () => { showToast('Error al leer el ZIP.', 'error'); showLoading(false); };
+    reader.readAsArrayBuffer(file);
+    return;
+  }
+
   const reader = new FileReader();
   reader.onload = e => {
-    try {
-      let data = [];
-      const name = file.name.toLowerCase();
-      if (name.endsWith('.csv')) {
-        data = parseCSV(e.target.result);
-      } else {
-        const wb = XLSX.read(e.target.result, { type:'array' });
-        let sn = wb.SheetNames[0];
-        for (const s of wb.SheetNames) {
-          const ws = wb.Sheets[s];
-          const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
-          if (range.e.c > 5) { sn = s; break; }
-        }
-        data = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval:0 });
-      }
-      if (!data.length) throw new Error('El archivo no contiene datos.');
-      data = normalizeColumns(data);
-      if (!data[0].hasOwnProperty('Entidad')) throw new Error('Formato no reconocido. Usa el archivo de incidencia delictiva del SESNSP.');
-      rawData = data;
-      hasMunicipio = data[0].hasOwnProperty('Municipio');
-      document.getElementById('fMuniGroup').style.display = hasMunicipio ? 'flex' : 'none';
-      document.getElementById('thExtra').style.display = hasMunicipio ? '' : 'none';
-      buildFilters(data);
-      renderDashboard(data);
-      document.getElementById('upload-section').style.display = 'none';
-      document.getElementById('dashboard').style.display = 'block';
-      document.getElementById('btnPDF').style.display = '';
-      document.getElementById('statusDot').className = 'status-dot active';
-      document.getElementById('statusText').textContent = file.name;
-      showToast(`✓ ${data.length.toLocaleString()} registros cargados`, 'success');
-    } catch(err) { showToast('Error: ' + err.message, 'error'); }
-    showLoading(false);
+    const isCSV = name.endsWith('.csv');
+    processContent(e.target.result, file, isCSV);
   };
   reader.onerror = () => { showToast('Error al leer el archivo.', 'error'); showLoading(false); };
-  name && name.endsWith('.csv') ? reader.readAsText(file,'UTF-8') : reader.readAsArrayBuffer(file);
+  name.endsWith('.csv') ? reader.readAsText(file,'UTF-8') : reader.readAsArrayBuffer(file);
+}
+
+function processContent(content, fileRef, isCSV) {
+  try {
+    let data = [];
+    if (isCSV) {
+      data = parseCSV(typeof content === 'string' ? content : new TextDecoder('utf-8').decode(content));
+    } else {
+      const wb = XLSX.read(content, { type:'array' });
+      let sn = wb.SheetNames[0];
+      for (const s of wb.SheetNames) {
+        const ws = wb.Sheets[s];
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+        if (range.e.c > 5) { sn = s; break; }
+      }
+      data = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval:0 });
+    }
+    if (!data.length) throw new Error('El archivo no contiene datos.');
+    data = normalizeColumns(data);
+
+    // ── RNID 2026 long format → pivot to wide ──
+    // Long format: has 'Mes' (number 1-12) but NO month-name columns
+    if (data[0].hasOwnProperty('Mes') && !MESES.some(m => data[0].hasOwnProperty(m))) {
+      data = pivotRNIDLong(data);
+      data._wasPivoted = true;
+    }
+
+    if (!data[0].hasOwnProperty('Entidad')) throw new Error('Formato no reconocido. Verifica que sea un archivo de incidencia delictiva del RNID o SESNSP.');
+    rawData = data;
+    hasMunicipio = data[0].hasOwnProperty('Municipio');
+    document.getElementById('fMuniGroup').style.display = hasMunicipio ? 'flex' : 'none';
+    document.getElementById('thExtra').style.display = hasMunicipio ? '' : 'none';
+    buildFilters(data);
+    renderDashboard(data);
+    document.getElementById('upload-section').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    document.getElementById('btnPDF').style.display = '';
+    document.getElementById('statusDot').className = 'status-dot active';
+    document.getElementById('statusText').textContent = fileRef.name;
+    // Format badge
+    const wasLong = data._wasPivoted;
+    const fmtBadge = document.getElementById('fmtBadge');
+    fmtBadge.style.display = '';
+    fmtBadge.textContent = wasLong ? 'RNID 2026' : 'SESNSP CLÁSICO';
+    fmtBadge.style.color = wasLong ? '#f59e2e' : '#3b8cf8';
+    fmtBadge.style.borderColor = wasLong ? 'rgba(245,158,46,.4)' : 'rgba(59,140,248,.4)';
+    fmtBadge.style.background = wasLong ? 'rgba(245,158,46,.1)' : 'rgba(59,140,248,.1)';
+    showToast(`✓ ${data.length.toLocaleString()} registros · ${wasLong?'RNID 2026':'SESNSP clásico'}`, 'success');
+  } catch(err) { showToast('Error: ' + err.message, 'error'); }
+  showLoading(false);
 }
 
 function parseCSV(text) {
@@ -451,23 +496,61 @@ function normalizeColumns(data) {
   const keys = Object.keys(data[0]);
   const map = {};
   for (const k of keys) {
-    const kl = k.toLowerCase().trim().replace(/\s+/g,' ');
-    if (/^a.o$/.test(kl)||kl==='año') map[k]='Año';
-    else if (kl.includes('entidad')) map[k]='Entidad';
-    else if (kl.includes('municipio')) map[k]='Municipio';
-    else if (kl.includes('bien jur')) map[k]='Bien jurídico afectado';
-    else if (kl==='tipo de delito') map[k]='Tipo de delito';
-    else if (kl==='subtipo de delito') map[k]='Subtipo de delito';
-    else if (kl==='modalidad') map[k]='Modalidad';
-    else if (kl==='clave_ent'||kl==='clave') map[k]='Clave_Ent';
-    else if (kl==='clave_mun') map[k]='Clave_Mun';
-    else { const m = MESES.find(ms=>kl===ms.toLowerCase()); if (m) map[k]=m; }
+    const kl = k.toLowerCase().trim().replace(/\s+/g,' ').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    // Año
+    if (/^a[n\u00f1]o$/.test(kl)||kl==='año'||kl==='anio'||kl==='year') map[k]='Año';
+    // Mes (RNID 2026 long format)
+    else if (kl==='mes'||kl==='month'||kl==='num_mes') map[k]='Mes';
+    // Entidad
+    else if (kl.includes('entidad')||kl==='estado'||kl==='state') map[k]='Entidad';
+    // Municipio
+    else if (kl.includes('municipio')||kl.includes('mun ')||kl==='nom_mun'||kl==='nom_municipio') map[k]='Municipio';
+    // Bien jurídico – SESNSP classic & RNID 2026 variants
+    else if (kl.includes('bien jur')||kl.includes('bien_jur')||kl==='bien juridico afectado'||kl==='bien_juridico') map[k]='Bien jurídico afectado';
+    // Tipo de delito
+    else if (kl==='tipo de delito'||kl==='tipo_delito'||kl==='tipo de delito'||kl==='tipo delito') map[k]='Tipo de delito';
+    // Subtipo / modalidad
+    else if (kl==='subtipo de delito'||kl==='subtipo_delito') map[k]='Subtipo de delito';
+    else if (kl==='modalidad'||kl==='modalidad del delito'||kl==='modalidad_delito') map[k]='Modalidad';
+    // Claves INEGI
+    else if (kl==='clave_ent'||kl==='clave ent'||kl==='cve_ent'||kl==='id_ent') map[k]='Clave_Ent';
+    else if (kl==='clave_mun'||kl==='clave mun'||kl==='cve_mun'||kl==='id_mun') map[k]='Clave_Mun';
+    // Conteo RNID 2026 (often "Carpetas" or "Total" in long format)
+    else if (kl==='carpetas'||kl==='num_carpetas'||kl==='total_carpetas'||kl==='delitos'||kl==='num_delitos') map[k]='Carpetas';
+    else {
+      // Month name columns (classic wide format)
+      const m = MESES.find(ms=>kl===ms.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''));
+      if (m) map[k]=m;
+    }
   }
   return data.map(row => {
     const nr = {};
     for (const [k,v] of Object.entries(row)) nr[map[k]||k] = v;
     return nr;
   });
+}
+
+// ── RNID 2026 long→wide pivot ──────────────────────────────
+// Long format: one row per (Año, Mes[1-12], Entidad, [Municipio], Bien jurídico, Tipo, Carpetas)
+// Wide format (our standard): one row per (Año, Entidad, [Municipio], Bien jurídico, Tipo, Enero...Diciembre)
+function pivotRNIDLong(data) {
+  const keyFields = ['Año','Entidad','Municipio','Clave_Ent','Clave_Mun','Bien jurídico afectado','Tipo de delito','Subtipo de delito','Modalidad'];
+  const groups = {};
+  data.forEach(row => {
+    const mes = Number(row['Mes']) || 0;
+    if (mes < 1 || mes > 12) return;
+    const key = keyFields.map(f => String(row[f]||'')).join('|');
+    if (!groups[key]) {
+      const base = {};
+      keyFields.forEach(f => { if (row[f] !== undefined) base[f] = row[f]; });
+      MESES.forEach(m => base[m] = 0);
+      groups[key] = base;
+    }
+    // Carpetas column or fallback to 1 per row
+    const val = Number(row['Carpetas']) || Number(row['Total']) || Number(row['Conteo']) || 1;
+    groups[key][MESES[mes-1]] += val;
+  });
+  return Object.values(groups);
 }
 
 // ══════════════════════════════════════════
