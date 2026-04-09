@@ -196,7 +196,7 @@ tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
     <button class="btn-upload" onclick="document.getElementById('fileInput').click()">Seleccionar archivo</button>
     <div class="format-tags"><span class="tag">.ZIP</span><span class="tag">.CSV</span><span class="tag">.XLSX</span><span class="tag">.XLS</span></div>
     <div class="file-hint">Compatible con RNID-Delitos_Estatal-2026 y archivos históricos SESNSP</div>
-    <input type="file" id="fileInput" accept=".zip,.xlsx,.xls,.csv">
+    <input type="file" id="fileInput" accept=".zip,.xlsx,.xls,.csv,application/zip,text/csv">
   </div>
 </section>
 
@@ -391,51 +391,68 @@ function newFile() {
   document.getElementById('btnPDF').style.display = 'none';
   document.getElementById('statusDot').className = 'status-dot';
   document.getElementById('statusText').textContent = 'Sin datos cargados';
+  document.getElementById('fmtBadge').style.display = 'none';
   rawData = []; fileInput.value = '';
   if (mapInstance) { mapInstance.remove(); mapInstance = null; mapMarkers = []; }
 }
 
+// ── Lee siempre como ArrayBuffer; maneja ZIP, CSV y XLSX ──
 function processFile(file) {
   showLoading(true);
-  const name = file.name.toLowerCase();
-
-  // ── ZIP: extract first CSV/XLSX inside ──
-  if (name.endsWith('.zip')) {
-    const reader = new FileReader();
-    reader.onload = async e => {
-      try {
-        const zip = await JSZip.loadAsync(e.target.result);
-        // Find first CSV or XLSX inside
-        const entries = Object.keys(zip.files).filter(n => /\.(csv|xlsx|xls)$/i.test(n) && !zip.files[n].dir);
-        if (!entries.length) throw new Error('El ZIP no contiene archivos CSV o XLSX.');
-        const innerName = entries[0];
-        const isCSV = /\.csv$/i.test(innerName);
-        const content = await zip.files[innerName].async(isCSV ? 'string' : 'arraybuffer');
-        const innerFile = { name: innerName };
-        processContent(content, innerFile, isCSV);
-      } catch(err) { showToast('Error ZIP: ' + err.message, 'error'); showLoading(false); }
-    };
-    reader.onerror = () => { showToast('Error al leer el ZIP.', 'error'); showLoading(false); };
-    reader.readAsArrayBuffer(file);
-    return;
-  }
-
   const reader = new FileReader();
-  reader.onload = e => {
-    const isCSV = name.endsWith('.csv');
-    processContent(e.target.result, file, isCSV);
+  reader.onload = async e => {
+    try {
+      const buf = e.target.result; // siempre ArrayBuffer
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.zip')) {
+        await handleZip(buf, file.name);
+      } else {
+        processBytes(new Uint8Array(buf), file.name);
+      }
+    } catch(err) { showToast('Error: ' + err.message, 'error'); showLoading(false); }
   };
-  reader.onerror = () => { showToast('Error al leer el archivo.', 'error'); showLoading(false); };
-  name.endsWith('.csv') ? reader.readAsText(file,'UTF-8') : reader.readAsArrayBuffer(file);
+  reader.onerror = () => { showToast('No se pudo leer el archivo.', 'error'); showLoading(false); };
+  reader.readAsArrayBuffer(file);
 }
 
-function processContent(content, fileRef, isCSV) {
+async function handleZip(arrayBuffer, zipName) {
+  if (typeof JSZip === 'undefined') throw new Error('JSZip no está disponible. Recarga la página e intenta de nuevo.');
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  // Ignorar carpetas y archivos ocultos (__MACOSX, etc.)
+  const entries = Object.keys(zip.files)
+    .filter(n => /\.(csv|xlsx|xls)$/i.test(n) && !zip.files[n].dir && !n.startsWith('__'))
+    .sort();
+  if (!entries.length) throw new Error('El ZIP no contiene archivos CSV o XLSX reconocibles.');
+  const innerName = entries[0];
+  const bytes = await zip.files[innerName].async('uint8array');
+  processBytes(bytes, innerName);
+}
+
+function decodeCSVBytes(bytes) {
+  // 1. Si tiene BOM UTF-8 (EF BB BF) → UTF-8
+  if (bytes[0]===0xEF && bytes[1]===0xBB && bytes[2]===0xBF) {
+    return new TextDecoder('utf-8').decode(bytes).replace(/^\uFEFF/,'');
+  }
+  // 2. Intentar UTF-8 estricto
   try {
+    return new TextDecoder('utf-8', {fatal:true}).decode(bytes);
+  } catch(_) {}
+  // 3. Fallback a Latin-1 / Windows-1252 (muy común en archivos SSPC/SESNSP)
+  return new TextDecoder('iso-8859-1').decode(bytes);
+}
+
+function processBytes(bytes, fileName) {
+  try {
+    const name = (fileName||'').toLowerCase();
     let data = [];
-    if (isCSV) {
-      data = parseCSV(typeof content === 'string' ? content : new TextDecoder('utf-8').decode(content));
+    let wasPivoted = false;
+
+    if (name.endsWith('.csv')) {
+      const text = decodeCSVBytes(bytes);
+      data = parseCSV(text);
     } else {
-      const wb = XLSX.read(content, { type:'array' });
+      // XLSX / XLS — SheetJS acepta Uint8Array directamente
+      const wb = XLSX.read(bytes, { type:'array', cellDates:true });
       let sn = wb.SheetNames[0];
       for (const s of wb.SheetNames) {
         const ws = wb.Sheets[s];
@@ -444,51 +461,80 @@ function processContent(content, fileRef, isCSV) {
       }
       data = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval:0 });
     }
-    if (!data.length) throw new Error('El archivo no contiene datos.');
+
+    if (!data.length) throw new Error('El archivo no contiene filas de datos.');
     data = normalizeColumns(data);
 
-    // ── RNID 2026 long format → pivot to wide ──
-    // Long format: has 'Mes' (number 1-12) but NO month-name columns
-    if (data[0].hasOwnProperty('Mes') && !MESES.some(m => data[0].hasOwnProperty(m))) {
+    // ── RNID 2026: formato largo (Mes numérico) → ancho (Enero…Diciembre) ──
+    const hasNumMes = data[0].hasOwnProperty('Mes');
+    const hasMonthCols = MESES.some(m => data[0].hasOwnProperty(m));
+    if (hasNumMes && !hasMonthCols) {
       data = pivotRNIDLong(data);
-      data._wasPivoted = true;
+      wasPivoted = true;
     }
 
-    if (!data[0].hasOwnProperty('Entidad')) throw new Error('Formato no reconocido. Verifica que sea un archivo de incidencia delictiva del RNID o SESNSP.');
+    if (!data.length || !data[0].hasOwnProperty('Entidad')) {
+      throw new Error('No se encontró la columna "Entidad". Verifica que sea un archivo de incidencia delictiva del RNID 2026 o SESNSP.');
+    }
+
     rawData = data;
     hasMunicipio = data[0].hasOwnProperty('Municipio');
     document.getElementById('fMuniGroup').style.display = hasMunicipio ? 'flex' : 'none';
     document.getElementById('thExtra').style.display = hasMunicipio ? '' : 'none';
     buildFilters(data);
     renderDashboard(data);
+
     document.getElementById('upload-section').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
     document.getElementById('btnPDF').style.display = '';
     document.getElementById('statusDot').className = 'status-dot active';
-    document.getElementById('statusText').textContent = fileRef.name;
-    // Format badge
-    const wasLong = data._wasPivoted;
+    document.getElementById('statusText').textContent = fileName;
+
     const fmtBadge = document.getElementById('fmtBadge');
     fmtBadge.style.display = '';
-    fmtBadge.textContent = wasLong ? 'RNID 2026' : 'SESNSP CLÁSICO';
-    fmtBadge.style.color = wasLong ? '#f59e2e' : '#3b8cf8';
-    fmtBadge.style.borderColor = wasLong ? 'rgba(245,158,46,.4)' : 'rgba(59,140,248,.4)';
-    fmtBadge.style.background = wasLong ? 'rgba(245,158,46,.1)' : 'rgba(59,140,248,.1)';
-    showToast(`✓ ${data.length.toLocaleString()} registros · ${wasLong?'RNID 2026':'SESNSP clásico'}`, 'success');
+    fmtBadge.textContent = wasPivoted ? 'RNID 2026' : 'SESNSP CLÁSICO';
+    fmtBadge.style.color = wasPivoted ? '#f59e2e' : '#3b8cf8';
+    fmtBadge.style.borderColor = wasPivoted ? 'rgba(245,158,46,.4)' : 'rgba(59,140,248,.4)';
+    fmtBadge.style.background = wasPivoted ? 'rgba(245,158,46,.1)' : 'rgba(59,140,248,.1)';
+
+    showToast(`✓ ${data.length.toLocaleString()} registros · ${wasPivoted?'RNID 2026':'SESNSP clásico'}`, 'success');
   } catch(err) { showToast('Error: ' + err.message, 'error'); }
   showLoading(false);
 }
 
 function parseCSV(text) {
-  const lines = text.split('\n').filter(l=>l.trim());
+  // Normalizar saltos de línea (Windows \r\n → \n)
+  text = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const lines = text.split('\n').filter(l => l.trim());
+  if (!lines.length) return [];
+
+  // Detectar separador: ; o ,
   const sep = lines[0].includes(';') ? ';' : ',';
-  const headers = lines[0].split(sep).map(h=>h.trim().replace(/^"|"$/g,''));
+
+  // Función robusta para dividir respetando campos con comillas
+  function splitLine(line) {
+    const result = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === sep && !inQ) { result.push(cur.trim()); cur = ''; }
+      else { cur += c; }
+    }
+    result.push(cur.trim());
+    return result.map(v => v.replace(/^"|"$/g,'').trim());
+  }
+
+  const headers = splitLine(lines[0]);
   return lines.slice(1).map(line => {
-    const vals = line.split(sep).map(v=>v.trim().replace(/^"|"$/g,''));
+    const vals = splitLine(line);
     const row = {};
-    headers.forEach((h,i) => { row[h] = isNaN(vals[i]) ? vals[i] : (Number(vals[i])||0); });
+    headers.forEach((h,i) => {
+      const v = vals[i] !== undefined ? vals[i] : '';
+      row[h] = v === '' ? 0 : (isNaN(v) ? v : Number(v));
+    });
     return row;
-  });
+  }).filter(row => Object.values(row).some(v => v !== 0 && v !== ''));
 }
 
 function normalizeColumns(data) {
