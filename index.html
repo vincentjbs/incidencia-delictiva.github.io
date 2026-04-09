@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Incidencia Delictiva · SESNSP</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Figtree:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0d14;--surface:#13151f;--surface2:#1a1d2e;--border:#252840;--accent:#e8453c;--accent2:#f59e2e;--accent3:#3b8cf8;--text:#eef0f8;--muted:#7b7f9e;--success:#22c55e}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Figtree',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");pointer-events:none;z-index:0;opacity:.4}
+
+/* ── HEADER ── */
+header{position:relative;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:16px 36px;border-bottom:1px solid var(--border);background:rgba(11,13,20,.95);backdrop-filter:blur(12px);flex-wrap:wrap;gap:10px}
+.header-left{display:flex;align-items:center;gap:14px}
+.logo-pill{background:var(--accent);color:#fff;font-family:'DM Mono',monospace;font-size:9px;font-weight:500;letter-spacing:2px;padding:5px 10px;border-radius:4px;text-transform:uppercase}
+header h1{font-family:'DM Serif Display',serif;font-size:1.3rem;color:var(--text)}
+header h1 span{color:var(--muted);font-style:italic}
+.header-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.header-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.5px;text-align:right}
+.status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:5px;vertical-align:middle;transition:background .3s}
+.status-dot.active{background:var(--success);box-shadow:0 0 6px var(--success)}
+.btn-pdf{background:rgba(59,140,248,.12);border:1px solid rgba(59,140,248,.35);color:var(--accent3);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;padding:8px 14px;border-radius:8px;cursor:pointer;transition:all .2s;white-space:nowrap}
+.btn-pdf:hover{background:rgba(59,140,248,.22)}
+
+/* ── UPLOAD ── */
+#upload-section{position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:calc(100vh - 66px);padding:40px}
+.upload-card{background:var(--surface);border:2px dashed var(--border);border-radius:20px;padding:64px 56px;text-align:center;max-width:580px;width:100%;cursor:pointer;transition:border-color .3s,background .3s,transform .2s}
+.upload-card:hover,.upload-card.drag-over{border-color:var(--accent);background:rgba(232,69,60,.05);transform:translateY(-4px)}
+.upload-icon{width:68px;height:68px;background:linear-gradient(135deg,rgba(232,69,60,.2),rgba(245,158,46,.2));border-radius:18px;display:flex;align-items:center;justify-content:center;margin:0 auto 22px;font-size:30px}
+.upload-card h2{font-family:'DM Serif Display',serif;font-size:1.75rem;margin-bottom:10px}
+.upload-card p{color:var(--muted);font-size:.88rem;line-height:1.65;margin-bottom:26px}
+.upload-card p strong{color:var(--accent2)}
+.btn-upload{display:inline-block;background:var(--accent);color:#fff;font-family:'Figtree',sans-serif;font-weight:600;font-size:.88rem;padding:12px 28px;border-radius:10px;border:none;cursor:pointer;transition:opacity .2s,transform .1s}
+.btn-upload:hover{opacity:.88;transform:scale(1.02)}
+.format-tags{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.tag{background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;padding:4px 10px;border-radius:6px;letter-spacing:1px}
+.file-hint{margin-top:16px;font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.5px}
+#fileInput{display:none}
+
+/* ── DASHBOARD ── */
+#dashboard{display:none;position:relative;z-index:10;padding:22px 32px 60px}
+
+/* ── FILTERS ── */
+.filters-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:22px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 18px}
+.filter-group{display:flex;align-items:center;gap:7px;flex:1;min-width:140px}
+.filter-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;white-space:nowrap}
+select{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Figtree',sans-serif;font-size:.83rem;padding:7px 10px;border-radius:8px;outline:none;cursor:pointer;flex:1;transition:border-color .2s;min-width:100px}
+select:focus{border-color:var(--accent3)}
+select option{background:var(--surface2)}
+.btn-sm{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:all .2s;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted)}
+.btn-sm:hover{border-color:var(--accent);color:var(--accent)}
+.btn-sm.red{background:rgba(232,69,60,.1);border-color:rgba(232,69,60,.3);color:var(--accent)}
+.btn-sm.red:hover{background:rgba(232,69,60,.2)}
+
+/* ── KPIs ── */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:14px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s;animation:fadeUp .5s ease both}
+.kpi:hover{border-color:var(--accent3);transform:translateY(-2px)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+.kpi:nth-child(1){animation-delay:.05s}.kpi:nth-child(2){animation-delay:.10s}.kpi:nth-child(3){animation-delay:.15s}.kpi:nth-child(4){animation-delay:.20s}.kpi:nth-child(5){animation-delay:.25s}
+.kpi::before{content:'';position:absolute;top:0;right:0;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,var(--ak,rgba(59,140,248,.1)) 0%,transparent 70%);transform:translate(30%,-30%)}
+.kpi[data-c="r"]::before{--ak:rgba(232,69,60,.12)}.kpi[data-c="a"]::before{--ak:rgba(245,158,46,.12)}.kpi[data-c="b"]::before{--ak:rgba(59,140,248,.12)}.kpi[data-c="g"]::before{--ak:rgba(34,197,94,.12)}.kpi[data-c="p"]::before{--ak:rgba(168,85,247,.12)}
+.kpi-icon{font-size:20px;margin-bottom:12px;display:block}
+.kpi-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:7px}
+.kpi-value{font-family:'DM Serif Display',serif;font-size:2rem;line-height:1;color:var(--text);margin-bottom:5px}
+.kpi-sub{font-size:.76rem;color:var(--muted)}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:4px;margin-bottom:18px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:5px}
+.tab-btn{flex:1;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.8px;padding:9px 14px;border-radius:9px;border:none;cursor:pointer;transition:all .2s;background:transparent;color:var(--muted);text-transform:uppercase}
+.tab-btn.active{background:var(--surface2);color:var(--text);box-shadow:0 0 0 1px var(--border)}
+.tab-btn:hover:not(.active){color:var(--text)}
+.tab-pane{display:none;animation:fadeUp .4s ease}
+.tab-pane.active{display:block}
+
+/* ── CHARTS ── */
+.charts-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:18px;margin-bottom:18px}
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+@media(max-width:860px){.charts-grid,.charts-row{grid-template-columns:1fr}}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;animation:fadeUp .5s ease both}
+.chart-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:6px}
+.chart-title{font-family:'DM Serif Display',serif;font-size:1rem}
+.chart-subtitle{font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
+canvas{width:100%!important}
+
+/* ── MAP ── */
+#mapContainer{height:480px;border-radius:12px;overflow:hidden;background:var(--surface2)}
+.map-legend{background:rgba(19,21,31,.9);border:1px solid var(--border);border-radius:10px;padding:12px 16px;font-family:'DM Mono',monospace;font-size:10px;color:var(--text);backdrop-filter:blur(8px)}
+.map-legend h4{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
+.legend-item{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.map-note{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-top:10px;letter-spacing:.5px}
+.leaflet-popup-content-wrapper{background:var(--surface2)!important;color:var(--text)!important;border:1px solid var(--border)!important;border-radius:10px!important;box-shadow:0 8px 24px rgba(0,0,0,.5)!important}
+.leaflet-popup-tip{background:var(--surface2)!important}
+.leaflet-popup-content{font-family:'Figtree',sans-serif;font-size:.83rem;line-height:1.6}
+.popup-rank{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)}
+.popup-name{font-weight:700;font-size:.95rem;margin-bottom:2px}
+.popup-val{color:var(--accent2);font-weight:600}
+
+/* ── COMPARATIVO ── */
+.comp-grid{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:18px}
+@media(max-width:860px){.comp-grid{grid-template-columns:1fr}}
+.year-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.year-badge{display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:5px 10px;border-radius:6px}
+.year-badge .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.delta-card{display:flex;flex-direction:column;gap:10px}
+.delta-item{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.delta-year{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:4px}
+.delta-val{font-family:'DM Serif Display',serif;font-size:1.6rem}
+.delta-change{font-size:.75rem;margin-top:3px}
+.delta-change.up{color:var(--accent)}.delta-change.down{color:var(--success)}.delta-change.neutral{color:var(--muted)}
+
+/* ── TABLE ── */
+.table-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;overflow:hidden;margin-top:18px}
+.table-scroll{overflow-x:auto;margin-top:14px}
+table{width:100%;border-collapse:collapse;font-size:.81rem}
+thead th{font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+tbody tr{border-bottom:1px solid rgba(37,40,64,.5);transition:background .15s}
+tbody tr:hover{background:rgba(59,140,248,.05)}
+tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
+.rank-badge{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;background:var(--surface2);border-radius:5px;font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-right:6px}
+.rank-badge.top{background:rgba(232,69,60,.15);color:var(--accent)}
+.mono{font-family:'DM Mono',monospace;color:var(--accent2)}
+
+/* ── LOADING / TOAST ── */
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(11,13,20,.85);z-index:100;align-items:center;justify-content:center;flex-direction:column;gap:14px;backdrop-filter:blur(8px)}
+.loading-overlay.show{display:flex}
+.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:1px}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 18px;font-size:.83rem;color:var(--text);z-index:200;transform:translateY(100px);opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);max-width:300px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.error{border-color:var(--accent);color:var(--accent)}
+.toast.success{border-color:var(--success)}
+
+/* ── PRINT / PDF ── */
+@media print{
+  body{background:#fff!important;color:#111!important}
+  body::before{display:none}
+  header{background:#fff!important;border-bottom:2px solid #111!important;box-shadow:none}
+  .logo-pill{background:#111!important}
+  .btn-pdf,.btn-sm,.tabs,.no-print{display:none!important}
+  #upload-section{display:none!important}
+  #dashboard{display:block!important;padding:16px}
+  .kpi{background:#f9f9f9!important;border:1px solid #ddd!important}
+  .kpi-value,.chart-title{color:#111!important}
+  .kpi-label,.chart-subtitle,.kpi-sub{color:#555!important}
+  .chart-card,.table-card{background:#fff!important;border:1px solid #ddd!important;break-inside:avoid;margin-bottom:16px}
+  .tab-pane{display:block!important}
+  #pane-mapa{display:none!important}
+  .filters-bar{display:none!important}
+  select,table{color:#111!important}
+  thead th{color:#444!important;border-bottom-color:#ccc!important}
+  tbody tr{border-bottom-color:#eee!important}
+  .mono{color:#c00!important}
+  .rank-badge{background:#eee!important;color:#444!important}
+  .rank-badge.top{background:#fdd!important;color:#c00!important}
+  @page{margin:1.5cm;size:A4}
+}
+</style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loading"><div class="spinner"></div><div class="loading-text">PROCESANDO DATOS...</div></div>
+<div class="toast" id="toast"></div>
+
+<!-- HEADER -->
+<header>
+  <div class="header-left">
+    <div class="logo-pill">SESNSP</div>
+    <h1>Incidencia Delictiva <span>· México</span></h1>
+  </div>
+  <div class="header-right">
+    <div class="header-meta">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Sin datos cargados</span><br>
+      Secretariado Ejecutivo del SNSP
+    </div>
+    <button class="btn-pdf no-print" onclick="exportPDF()" style="display:none" id="btnPDF">⬇ Exportar PDF</button>
+  </div>
+</header>
+
+<!-- UPLOAD -->
+<section id="upload-section">
+  <div class="upload-card" id="dropZone">
+    <div class="upload-icon">📂</div>
+    <h2>Cargar datos SESNSP</h2>
+    <p>Arrastra el archivo de incidencia delictiva del<br><strong>Secretariado Ejecutivo del SNSP</strong><br>Fuero Común o Federal · Estatal o <strong>Municipal</strong></p>
+    <button class="btn-upload" onclick="document.getElementById('fileInput').click()">Seleccionar archivo</button>
+    <div class="format-tags"><span class="tag">.XLSX</span><span class="tag">.XLS</span><span class="tag">.CSV</span></div>
+    <div class="file-hint">Compatible con archivos de incidencia estatal y municipal</div>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+  </div>
+</section>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+  <!-- FILTERS -->
+  <div class="filters-bar">
+    <div class="filter-group"><span class="filter-label">Año</span><select id="fAnio"><option value="">Todos</option></select></div>
+    <div class="filter-group"><span class="filter-label">Entidad</span><select id="fEntidad"><option value="">Todas</option></select></div>
+    <div class="filter-group" id="fMuniGroup" style="display:none"><span class="filter-label">Municipio</span><select id="fMunicipio"><option value="">Todos</option></select></div>
+    <div class="filter-group"><span class="filter-label">Bien jurídico</span><select id="fBien"><option value="">Todos</option></select></div>
+    <div class="filter-group"><span class="filter-label">Tipo de delito</span><select id="fTipo"><option value="">Todos</option></select></div>
+    <button class="btn-sm" onclick="resetFilters()">↺ LIMPIAR</button>
+    <button class="btn-sm red" onclick="newFile()">⊕ NUEVO ARCHIVO</button>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis">
+    <div class="kpi" data-c="r"><span class="kpi-icon">⚠️</span><div class="kpi-label">Total de delitos</div><div class="kpi-value" id="kpiTotal">—</div><div class="kpi-sub" id="kpiTotalSub">registros</div></div>
+    <div class="kpi" data-c="a"><span class="kpi-icon">📌</span><div class="kpi-label">Delito más frecuente</div><div class="kpi-value" id="kpiTopDelito" style="font-size:1rem;padding-top:8px">—</div><div class="kpi-sub" id="kpiTopDelitoSub"></div></div>
+    <div class="kpi" data-c="b"><span class="kpi-icon">🗺️</span><div class="kpi-label">Entidad con más delitos</div><div class="kpi-value" id="kpiTopEntidad" style="font-size:1rem;padding-top:8px">—</div><div class="kpi-sub" id="kpiTopEntidadSub"></div></div>
+    <div class="kpi" data-c="g"><span class="kpi-icon">📅</span><div class="kpi-label">Mes más alto</div><div class="kpi-value" id="kpiTopMes" style="font-size:1.3rem;padding-top:4px">—</div><div class="kpi-sub" id="kpiTopMesSub"></div></div>
+    <div class="kpi" data-c="p"><span class="kpi-icon">📊</span><div class="kpi-label">Promedio mensual</div><div class="kpi-value" id="kpiProm">—</div><div class="kpi-sub">delitos / mes</div></div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs no-print">
+    <button class="tab-btn active" onclick="switchTab('resumen',this)">📊 Resumen</button>
+    <button class="tab-btn" onclick="switchTab('mapa',this)">🗺 Mapa de calor</button>
+    <button class="tab-btn" onclick="switchTab('comparativo',this)">📅 Comparativo anual</button>
+  </div>
+
+  <!-- TAB: RESUMEN -->
+  <div class="tab-pane active" id="pane-resumen">
+    <div class="charts-grid">
+      <div class="chart-card"><div class="chart-header"><div class="chart-title">Tendencia mensual</div><div class="chart-subtitle">Delitos por mes</div></div><canvas id="cTendencia" height="210"></canvas></div>
+      <div class="chart-card"><div class="chart-header"><div class="chart-title">Bien jurídico afectado</div><div class="chart-subtitle">Distribución</div></div><canvas id="cBienJuridico" height="210"></canvas></div>
+    </div>
+    <div class="charts-row">
+      <div class="chart-card"><div class="chart-header"><div class="chart-title">Top 10 tipos de delito</div><div class="chart-subtitle">Acumulado</div></div><canvas id="cTipoDelito" height="290"></canvas></div>
+      <div class="chart-card"><div class="chart-header"><div class="chart-title">Top 10 entidades</div><div class="chart-subtitle">Total delitos</div></div><canvas id="cEntidades" height="290"></canvas></div>
+    </div>
+  </div>
+
+  <!-- TAB: MAPA -->
+  <div class="tab-pane" id="pane-mapa">
+    <div class="chart-card" style="padding:16px">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Mapa de calor delictiva</div>
+          <div class="chart-subtitle" id="mapSubtitle">Intensidad por municipio / entidad</div>
+        </div>
+        <div class="map-note" id="mapNote"></div>
+      </div>
+      <div id="mapContainer"></div>
+    </div>
+  </div>
+
+  <!-- TAB: COMPARATIVO ANUAL -->
+  <div class="tab-pane" id="pane-comparativo">
+    <div class="comp-grid">
+      <div class="chart-card">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">Tendencia por año</div>
+            <div class="chart-subtitle">Comparativo mensual multi-año</div>
+          </div>
+          <div class="year-badges" id="yearBadges"></div>
+        </div>
+        <canvas id="cComparativo" height="240"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header"><div class="chart-title">Total anual</div><div class="chart-subtitle">Suma por año</div></div>
+        <canvas id="cAnuales" height="240"></canvas>
+        <div class="delta-card" id="deltaCards" style="margin-top:14px"></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header"><div class="chart-title">Top delitos por año</div><div class="chart-subtitle">Comparativo de tipos</div></div>
+      <canvas id="cDelitoAnio" height="160"></canvas>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-card">
+    <div class="chart-header"><div class="chart-title">Ranking de delitos</div><div class="chart-subtitle" id="tableSubtitle">Top 15</div></div>
+    <div class="table-scroll">
+      <table><thead><tr><th>#</th><th>Tipo de delito</th><th>Bien jurídico afectado</th><th id="thExtra" style="display:none">Municipio</th><th>Total</th></tr></thead><tbody id="tableBody"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ══════════════════════════════════════════
+//  CONSTANTS
+// ══════════════════════════════════════════
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const YEAR_PALETTE = ['#3b8cf8','#e8453c','#f59e2e','#22c55e','#a855f7','#ec4899','#14b8a6','#f97316'];
+const PALETTE = ['#e8453c','#f59e2e','#3b8cf8','#22c55e','#a855f7','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16'];
+
+// ── MUNICIPALITY COORDINATES (INEGI state name → municipality name → [lat,lng]) ──
+const MUNI_COORDS = {
+"aguascalientes|aguascalientes":[21.885,-102.292],"aguascalientes|jesus maria":[21.959,-102.354],"aguascalientes|calvillo":[21.846,-102.718],"aguascalientes|rincon de romos":[22.228,-102.313],"aguascalientes|pabellon de arteaga":[22.142,-102.279],"aguascalientes|san francisco de los romo":[22.074,-102.271],
+"baja california|tijuana":[32.503,-117.004],"baja california|mexicali":[32.625,-115.452],"baja california|ensenada":[31.867,-116.596],"baja california|tecate":[32.573,-116.628],"baja california|playas de rosarito":[32.365,-117.061],
+"baja california sur|los cabos":[22.891,-109.917],"baja california sur|la paz":[24.143,-110.313],"baja california sur|comondu":[26.050,-111.820],"baja california sur|loreto":[26.013,-111.345],"baja california sur|mulege":[26.883,-111.983],
+"campeche|campeche":[19.845,-90.525],"campeche|carmen":[18.649,-91.838],"campeche|calkini":[20.367,-90.050],"campeche|hecelchakan":[20.167,-90.133],"campeche|palizada":[18.252,-92.083],
+"chiapas|tuxtla gutierrez":[16.752,-93.115],"chiapas|san cristobal de las casas":[16.737,-92.638],"chiapas|tapachula":[14.900,-92.263],"chiapas|comitan de dominguez":[16.252,-92.135],"chiapas|ocosingo":[16.903,-92.097],"chiapas|tonala":[16.083,-93.741],"chiapas|palenque":[17.516,-91.983],"chiapas|villaflores":[16.227,-93.271],
+"chihuahua|juarez":[31.690,-106.425],"chihuahua|ciudad juarez":[31.690,-106.425],"chihuahua|chihuahua":[28.635,-106.089],"chihuahua|delicias":[28.193,-105.469],"chihuahua|cuauhtemoc":[28.408,-106.864],"chihuahua|hidalgo del parral":[26.932,-105.667],"chihuahua|ojinaga":[29.567,-104.417],"chihuahua|camargo":[27.683,-105.167],
+"ciudad de mexico|cuauhtemoc":[19.431,-99.134],"ciudad de mexico|gustavo a. madero":[19.481,-99.118],"ciudad de mexico|iztapalapa":[19.365,-99.063],"ciudad de mexico|alvaro obregon":[19.359,-99.201],"ciudad de mexico|tlalpan":[19.298,-99.173],"ciudad de mexico|benito juarez":[19.398,-99.158],"ciudad de mexico|xochimilco":[19.257,-99.103],"ciudad de mexico|miguel hidalgo":[19.423,-99.194],"ciudad de mexico|coyoacan":[19.347,-99.162],"ciudad de mexico|azcapotzalco":[19.486,-99.185],"ciudad de mexico|venustiano carranza":[19.432,-99.112],"ciudad de mexico|iztacalco":[19.398,-99.112],"ciudad de mexico|tlahuac":[19.292,-99.003],"ciudad de mexico|cuajimalpa de morelos":[19.365,-99.296],"ciudad de mexico|la magdalena contreras":[19.325,-99.235],"ciudad de mexico|milpa alta":[19.192,-99.022],
+"coahuila|saltillo":[25.424,-101.004],"coahuila|torreon":[25.543,-103.407],"coahuila|monclova":[26.908,-101.423],"coahuila|piedras negras":[28.703,-100.523],"coahuila|acuna":[29.318,-100.936],"coahuila|ciudad acuna":[29.318,-100.936],"coahuila|sabinas":[27.867,-101.122],"coahuila|muzquiz":[27.873,-101.526],
+"colima|colima":[19.245,-103.724],"colima|manzanillo":[19.050,-104.318],"colima|tecoman":[18.908,-103.876],"colima|villa de alvarez":[19.270,-103.738],"colima|ixtlahuacan":[19.063,-104.038],
+"durango|durango":[24.028,-104.653],"durango|victoria de durango":[24.028,-104.653],"durango|gomez palacio":[25.569,-103.498],"durango|lerdo":[25.537,-103.527],"durango|santiago papasquiaro":[25.047,-105.416],
+"guanajuato|leon":[21.124,-101.682],"guanajuato|irapuato":[20.677,-101.355],"guanajuato|celaya":[20.524,-100.815],"guanajuato|salamanca":[20.570,-101.196],"guanajuato|guanajuato":[21.019,-101.257],"guanajuato|silao de la victoria":[20.938,-101.427],"guanajuato|san francisco del rincon":[21.017,-101.855],"guanajuato|apaseo el grande":[20.548,-100.612],"guanajuato|acambaro":[20.030,-100.728],"guanajuato|cortazar":[20.484,-100.943],
+"guerrero|acapulco de juarez":[16.853,-99.824],"guerrero|acapulco":[16.853,-99.824],"guerrero|chilpancingo de los bravos":[17.552,-99.499],"guerrero|iguala de la independencia":[18.346,-99.539],"guerrero|zihuatanejo de azueta":[17.639,-101.551],"guerrero|taxco de alarcon":[18.556,-99.601],"guerrero|tlapa de comonfort":[17.546,-98.577],
+"hidalgo|pachuca de soto":[20.101,-98.759],"hidalgo|tulancingo de bravo":[20.086,-98.363],"hidalgo|tula de allende":[20.052,-99.349],"hidalgo|ixmiquilpan":[20.488,-99.220],"hidalgo|huejutla de reyes":[21.141,-98.419],"hidalgo|tepeji del rio de ocampo":[19.908,-99.346],
+"jalisco|guadalajara":[20.660,-103.350],"jalisco|zapopan":[20.722,-103.392],"jalisco|tlaquepaque":[20.643,-103.317],"jalisco|tonala":[20.624,-103.236],"jalisco|tlajomulco de zuniga":[20.475,-103.448],"jalisco|puerto vallarta":[20.653,-105.225],"jalisco|lagos de moreno":[21.360,-101.926],"jalisco|tepatitlan de morelos":[20.818,-102.736],"jalisco|la barca":[20.285,-102.558],"jalisco|ocotlan":[20.353,-102.768],"jalisco|zapotlan el grande":[19.719,-103.467],
+"mexico|ecatepec de morelos":[19.601,-99.031],"mexico|nezahualcoyotl":[19.402,-99.018],"mexico|toluca":[19.283,-99.656],"mexico|naucalpan de juarez":[19.479,-99.239],"mexico|tlalnepantla de baz":[19.540,-99.196],"mexico|chimalhuacan":[19.425,-98.958],"mexico|texcoco":[19.515,-98.882],"mexico|cuautitlan izcalli":[19.649,-99.218],"mexico|ixtapaluca":[19.316,-98.881],"mexico|valle de chalco solidaridad":[19.296,-98.974],"mexico|chalco":[19.263,-98.898],"mexico|coacalco de berriozabal":[19.625,-99.102],"mexico|atizapan de zaragoza":[19.578,-99.268],"mexico|nicolas romero":[19.637,-99.313],"mexico|metepec":[19.255,-99.604],"mexico|tultitlan":[19.647,-99.169],"mexico|huixquilucan":[19.414,-99.360],
+"michoacan|morelia":[19.706,-101.195],"michoacan|lazaro cardenas":[17.958,-102.169],"michoacan|uruapan":[19.419,-102.063],"michoacan|zamora":[20.007,-102.284],"michoacan|apatzingan de la constitucion":[19.086,-102.356],"michoacan|zitacuaro":[19.439,-100.356],"michoacan|sahuayo":[20.066,-102.720],
+"morelos|cuernavaca":[18.924,-99.234],"morelos|jiutepec":[18.883,-99.177],"morelos|temixco":[18.851,-99.238],"morelos|cuautla":[18.810,-98.957],"morelos|yautepec de zaragoza":[18.884,-99.062],"morelos|yautepec":[18.884,-99.062],"morelos|jojutla":[18.619,-99.183],"morelos|emiliano zapata":[18.859,-99.105],"morelos|xochitepec":[18.791,-99.247],"morelos|ayala":[18.773,-98.983],"morelos|puente de ixtla":[18.617,-99.336],"morelos|zacatepec":[18.659,-99.196],"morelos|tlaltizapan de zapata":[18.679,-99.150],"morelos|tlaltizapan":[18.679,-99.150],"morelos|tetela del volcan":[18.893,-98.730],"morelos|jonacatepec de leandro valle":[18.680,-98.782],"morelos|jonacatepec":[18.680,-98.782],"morelos|jantetelco":[18.655,-98.768],"morelos|tepalcingo":[18.600,-98.844],"morelos|axochiapan":[18.500,-98.768],"morelos|coatlan del rio":[18.719,-99.326],"morelos|miacatlan":[18.757,-99.380],"morelos|mazatepec":[18.730,-99.328],"morelos|tetecala":[18.735,-99.398],"morelos|amacuzac":[18.604,-99.351],"morelos|tlaquiltenango":[18.626,-99.099],"morelos|yecapixtla":[18.886,-98.868],"morelos|atlatlahucan":[18.937,-98.908],"morelos|ocuituco":[18.938,-98.780],"morelos|totolapan":[19.015,-98.925],"morelos|tlayacapan":[18.969,-98.983],"morelos|tepoztlan":[18.985,-99.100],"morelos|huitzilac":[19.027,-99.252],"morelos|zacualpan de amilpas":[18.768,-98.783],"morelos|temoac":[18.712,-98.853],
+"nayarit|tepic":[21.504,-104.894],"nayarit|bahia de banderas":[20.751,-105.264],"nayarit|santiago ixcuintla":[21.816,-105.207],"nayarit|xalisco":[21.442,-104.910],"nayarit|compostela":[21.234,-104.900],
+"nuevo leon|monterrey":[25.687,-100.316],"nuevo leon|guadalupe":[25.678,-100.258],"nuevo leon|san nicolas de los garza":[25.749,-100.296],"nuevo leon|apodaca":[25.783,-100.183],"nuevo leon|general escobedo":[25.800,-100.333],"nuevo leon|santa catarina":[25.674,-100.453],"nuevo leon|juarez":[25.647,-100.094],"nuevo leon|san pedro garza garcia":[25.658,-100.402],"nuevo leon|garcia":[25.801,-100.586],"nuevo leon|linares":[24.862,-99.566],
+"oaxaca|oaxaca de juarez":[17.066,-96.723],"oaxaca|juchitan de zaragoza":[16.434,-95.030],"oaxaca|heroica ciudad de juchitan de zaragoza":[16.434,-95.030],"oaxaca|san juan bautista tuxtepec":[18.088,-96.123],"oaxaca|tuxtepec":[18.088,-96.123],"oaxaca|salina cruz":[16.183,-95.200],"oaxaca|santa lucia del camino":[17.071,-96.697],
+"puebla|puebla":[19.041,-98.206],"puebla|tehuacan":[18.467,-97.400],"puebla|san martin texmelucan":[19.284,-98.436],"puebla|atlixco":[18.907,-98.435],"puebla|cuautlancingo":[19.079,-98.287],"puebla|san andres cholula":[19.064,-98.308],"puebla|amozoc":[19.054,-98.112],
+"queretaro|queretaro":[20.589,-100.390],"queretaro|el marques":[20.600,-100.233],"queretaro|san juan del rio":[20.389,-100.016],"queretaro|corregidora":[20.536,-100.445],"queretaro|pedro escobedo":[20.531,-100.044],
+"quintana roo|benito juarez":[21.162,-86.852],"quintana roo|cancun":[21.162,-86.852],"quintana roo|solidaridad":[20.630,-87.074],"quintana roo|othon p. blanco":[18.504,-88.305],"quintana roo|cozumel":[20.509,-86.947],"quintana roo|lazaro cardenas":[18.182,-87.894],"quintana roo|tulum":[20.212,-87.465],"quintana roo|isla mujeres":[21.234,-86.729],
+"san luis potosi|san luis potosi":[22.157,-100.986],"san luis potosi|soledad de graciano sanchez":[22.182,-100.939],"san luis potosi|ciudad valles":[21.994,-99.013],"san luis potosi|matehuala":[23.650,-100.650],"san luis potosi|ebano":[22.279,-98.389],
+"sinaloa|culiacan rosal":[24.799,-107.390],"sinaloa|culiacan":[24.799,-107.390],"sinaloa|mazatlan":[23.249,-106.411],"sinaloa|ahome":[25.921,-109.174],"sinaloa|guasave":[25.569,-108.471],"sinaloa|navolato":[24.768,-107.701],"sinaloa|salvador alvarado":[25.190,-108.179],
+"sonora|hermosillo":[29.073,-110.956],"sonora|cajeme":[27.488,-109.932],"sonora|ciudad obregon":[27.488,-109.932],"sonora|nogales":[31.297,-110.948],"sonora|san luis rio colorado":[32.456,-114.780],"sonora|guaymas":[27.918,-110.897],"sonora|navojoa":[27.081,-109.442],
+"tabasco|centro":[17.989,-92.948],"tabasco|villahermosa":[17.989,-92.948],"tabasco|cunduacan":[18.093,-93.164],"tabasco|comalcalco":[18.276,-93.215],"tabasco|cardenas":[18.000,-93.367],"tabasco|paraiso":[18.400,-93.213],"tabasco|macuspana":[17.766,-92.541],
+"tamaulipas|reynosa":[26.085,-98.278],"tamaulipas|matamoros":[25.869,-97.503],"tamaulipas|tampico":[22.255,-97.869],"tamaulipas|nuevo laredo":[27.483,-99.517],"tamaulipas|ciudad victoria":[23.737,-99.146],"tamaulipas|victoria":[23.737,-99.146],"tamaulipas|ciudad madero":[22.273,-97.836],"tamaulipas|altamira":[22.393,-97.921],
+"tlaxcala|tlaxcala de xicohtencatl":[19.318,-98.198],"tlaxcala|tlaxcala":[19.318,-98.198],"tlaxcala|apizaco":[19.415,-98.139],"tlaxcala|chiautempan":[19.314,-98.189],"tlaxcala|zacatelco":[19.217,-98.228],"tlaxcala|contla de juan cuamatzi":[19.384,-98.180],
+"veracruz|veracruz":[19.174,-96.134],"veracruz|xalapa":[19.544,-96.910],"veracruz|coatzacoalcos":[18.150,-94.433],"veracruz|boca del rio":[19.106,-96.113],"veracruz|poza rica de hidalgo":[20.533,-97.459],"veracruz|minatitlan":[17.991,-94.552],"veracruz|cordoba":[18.884,-96.931],"veracruz|orizaba":[18.850,-97.101],"veracruz|tuxpan de rodriguez cano":[20.957,-97.403],
+"yucatan|merida":[20.967,-89.593],"yucatan|valladolid":[20.689,-88.203],"yucatan|tizimin":[21.145,-88.162],"yucatan|kanasin":[20.928,-89.519],"yucatan|progreso":[21.282,-89.665],"yucatan|uman":[20.889,-89.755],
+"zacatecas|zacatecas":[22.771,-102.583],"zacatecas|guadalupe":[22.757,-102.517],"zacatecas|fresnillo":[23.175,-102.870],"zacatecas|jerez de garcia salinas":[22.646,-103.001],"zacatecas|rio grande":[23.808,-103.034]
+};
+
+// State centroids (fallback)
+const STATE_CENTROIDS = {
+"aguascalientes":[22.0,  -102.3],"baja california":[30.0,-115.0],"baja california sur":[25.0,-111.5],"campeche":[19.0,-90.5],"chiapas":[16.5,-92.5],"chihuahua":[28.5,-106.0],"ciudad de mexico":[19.4,-99.1],"coahuila":[27.0,-101.5],"colima":[19.2,-103.7],"durango":[24.5,-104.5],"guanajuato":[21.0,-101.0],"guerrero":[17.5,-100.0],"hidalgo":[20.5,-99.0],"jalisco":[20.5,-103.5],"mexico":[19.5,-99.5],"michoacan":[19.5,-101.5],"morelos":[18.7,-99.1],"nayarit":[21.5,-104.5],"nuevo leon":[25.5,-99.5],"oaxaca":[17.0,-96.5],"puebla":[19.0,-98.0],"queretaro":[20.7,-99.5],"quintana roo":[19.5,-88.0],"san luis potosi":[22.5,-100.5],"sinaloa":[25.0,-107.5],"sonora":[29.5,-110.5],"tabasco":[18.0,-92.5],"tamaulipas":[24.5,-99.0],"tlaxcala":[19.5,-98.2],"veracruz":[19.5,-96.5],"yucatan":[20.5,-89.0],"zacatecas":[23.0,-103.0]
+};
+
+// State bounding boxes [SW, NE]
+const STATE_BOUNDS = {
+"aguascalientes":[[21.6,-102.6],[22.5,-101.7]],"baja california":[[28.0,-117.3],[32.7,-114.5]],"baja california sur":[[22.8,-115.0],[28.0,-109.0]],"campeche":[[17.8,-92.5],[20.9,-89.1]],"chiapas":[[14.5,-94.2],[18.0,-90.3]],"chihuahua":[[25.6,-109.1],[31.8,-103.0]],"ciudad de mexico":[[19.0,-99.4],[19.6,-98.9]],"coahuila":[[24.5,-103.1],[29.9,-99.8]],"colima":[[18.7,-104.8],[19.6,-103.5]],"durango":[[22.0,-107.3],[27.0,-102.9]],"guanajuato":[[19.9,-102.2],[21.9,-99.7]],"guerrero":[[16.3,-101.9],[18.8,-98.0]],"hidalgo":[[19.6,-99.9],[21.4,-97.9]],"jalisco":[[18.9,-105.8],[22.9,-101.4]],"mexico":[[18.4,-100.6],[20.3,-98.5]],"michoacan":[[17.9,-103.8],[20.4,-99.8]],"morelos":[[18.5,-99.5],[19.1,-98.6]],"nayarit":[[20.6,-105.8],[23.1,-103.7]],"nuevo leon":[[23.2,-101.2],[27.8,-98.2]],"oaxaca":[[15.6,-98.5],[18.7,-93.6]],"puebla":[[17.9,-99.1],[20.8,-96.7]],"queretaro":[[20.0,-100.6],[21.7,-99.0]],"quintana roo":[[17.9,-89.3],[21.7,-86.7]],"san luis potosi":[[21.0,-102.3],[24.5,-98.3]],"sinaloa":[[22.5,-108.1],[27.0,-105.1]],"sonora":[[26.2,-115.1],[32.5,-108.4]],"tabasco":[[17.2,-94.1],[18.6,-90.9]],"tamaulipas":[[22.2,-100.2],[27.7,-97.1]],"tlaxcala":[[19.0,-98.7],[19.9,-97.9]],"veracruz":[[17.1,-97.5],[22.5,-93.6]],"yucatan":[[19.5,-90.5],[21.7,-87.5]],"zacatecas":[[21.0,-104.4],[25.2,-100.8]]
+};
+
+// ══════════════════════════════════════════
+//  GLOBALS
+// ══════════════════════════════════════════
+let rawData = [], charts = {}, mapInstance = null, mapMarkers = [], hasMunicipio = false;
+
+// ══════════════════════════════════════════
+//  NORMALIZE
+// ══════════════════════════════════════════
+function norm(s) {
+  if (!s) return '';
+  return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\./g,'').trim()
+    .replace(/ de (zaragoza|ocampo|ignacio de la llave|la llave|los bravos)$/,'')
+    .replace(/ de $/,'').replace(/heroica ciudad de /,'').trim();
+}
+
+function getCoords(estado, municipio) {
+  const es = norm(estado), ms = norm(municipio || '');
+  const key1 = es + '|' + ms;
+  if (MUNI_COORDS[key1]) return MUNI_COORDS[key1];
+  // Try partial match
+  const prefix = es + '|';
+  const found = Object.keys(MUNI_COORDS).find(k => k.startsWith(prefix) && k.includes(ms.split(' ')[0]));
+  if (found) return MUNI_COORDS[found];
+  // Fall back to state centroid + jitter
+  const centroid = STATE_CENTROIDS[es];
+  if (!centroid) return null;
+  // Deterministic jitter based on municipality name
+  const h = ms.split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+  return [centroid[0] + (h % 20 - 10) * 0.05, centroid[1] + ((h * 7) % 20 - 10) * 0.05];
+}
+
+// ══════════════════════════════════════════
+//  FILE HANDLING
+// ══════════════════════════════════════════
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
+
+function newFile() {
+  document.getElementById('upload-section').style.display = 'flex';
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('btnPDF').style.display = 'none';
+  document.getElementById('statusDot').className = 'status-dot';
+  document.getElementById('statusText').textContent = 'Sin datos cargados';
+  rawData = []; fileInput.value = '';
+  if (mapInstance) { mapInstance.remove(); mapInstance = null; mapMarkers = []; }
+}
+
+function processFile(file) {
+  showLoading(true);
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      let data = [];
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.csv')) {
+        data = parseCSV(e.target.result);
+      } else {
+        const wb = XLSX.read(e.target.result, { type:'array' });
+        let sn = wb.SheetNames[0];
+        for (const s of wb.SheetNames) {
+          const ws = wb.Sheets[s];
+          const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+          if (range.e.c > 5) { sn = s; break; }
+        }
+        data = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval:0 });
+      }
+      if (!data.length) throw new Error('El archivo no contiene datos.');
+      data = normalizeColumns(data);
+      if (!data[0].hasOwnProperty('Entidad')) throw new Error('Formato no reconocido. Usa el archivo de incidencia delictiva del SESNSP.');
+      rawData = data;
+      hasMunicipio = data[0].hasOwnProperty('Municipio');
+      document.getElementById('fMuniGroup').style.display = hasMunicipio ? 'flex' : 'none';
+      document.getElementById('thExtra').style.display = hasMunicipio ? '' : 'none';
+      buildFilters(data);
+      renderDashboard(data);
+      document.getElementById('upload-section').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      document.getElementById('btnPDF').style.display = '';
+      document.getElementById('statusDot').className = 'status-dot active';
+      document.getElementById('statusText').textContent = file.name;
+      showToast(`✓ ${data.length.toLocaleString()} registros cargados`, 'success');
+    } catch(err) { showToast('Error: ' + err.message, 'error'); }
+    showLoading(false);
+  };
+  reader.onerror = () => { showToast('Error al leer el archivo.', 'error'); showLoading(false); };
+  name && name.endsWith('.csv') ? reader.readAsText(file,'UTF-8') : reader.readAsArrayBuffer(file);
+}
+
+function parseCSV(text) {
+  const lines = text.split('\n').filter(l=>l.trim());
+  const sep = lines[0].includes(';') ? ';' : ',';
+  const headers = lines[0].split(sep).map(h=>h.trim().replace(/^"|"$/g,''));
+  return lines.slice(1).map(line => {
+    const vals = line.split(sep).map(v=>v.trim().replace(/^"|"$/g,''));
+    const row = {};
+    headers.forEach((h,i) => { row[h] = isNaN(vals[i]) ? vals[i] : (Number(vals[i])||0); });
+    return row;
+  });
+}
+
+function normalizeColumns(data) {
+  if (!data.length) return data;
+  const keys = Object.keys(data[0]);
+  const map = {};
+  for (const k of keys) {
+    const kl = k.toLowerCase().trim().replace(/\s+/g,' ');
+    if (/^a.o$/.test(kl)||kl==='año') map[k]='Año';
+    else if (kl.includes('entidad')) map[k]='Entidad';
+    else if (kl.includes('municipio')) map[k]='Municipio';
+    else if (kl.includes('bien jur')) map[k]='Bien jurídico afectado';
+    else if (kl==='tipo de delito') map[k]='Tipo de delito';
+    else if (kl==='subtipo de delito') map[k]='Subtipo de delito';
+    else if (kl==='modalidad') map[k]='Modalidad';
+    else if (kl==='clave_ent'||kl==='clave') map[k]='Clave_Ent';
+    else if (kl==='clave_mun') map[k]='Clave_Mun';
+    else { const m = MESES.find(ms=>kl===ms.toLowerCase()); if (m) map[k]=m; }
+  }
+  return data.map(row => {
+    const nr = {};
+    for (const [k,v] of Object.entries(row)) nr[map[k]||k] = v;
+    return nr;
+  });
+}
+
+// ══════════════════════════════════════════
+//  FILTERS
+// ══════════════════════════════════════════
+function buildFilters(data) {
+  const anios = [...new Set(data.map(r=>r['Año']).filter(Boolean))].sort();
+  const entidades = [...new Set(data.map(r=>r['Entidad']).filter(Boolean))].sort();
+  const bienes = [...new Set(data.map(r=>r['Bien jurídico afectado']).filter(Boolean))].sort();
+  const tipos = [...new Set(data.map(r=>r['Tipo de delito']).filter(Boolean))].sort();
+  fillSelect('fAnio', anios);
+  fillSelect('fEntidad', entidades);
+  fillSelect('fBien', bienes);
+  fillSelect('fTipo', tipos);
+  if (hasMunicipio) updateMuniOptions(data);
+  ['fAnio','fEntidad','fBien','fTipo'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+    if (hasMunicipio && id === 'fEntidad') {
+      const entidad = document.getElementById('fEntidad').value;
+      const subset = entidad ? rawData.filter(r=>r['Entidad']===entidad) : rawData;
+      updateMuniOptions(subset);
+    }
+    applyFilters();
+  }));
+  if (hasMunicipio) document.getElementById('fMunicipio').addEventListener('change', applyFilters);
+}
+
+function updateMuniOptions(data) {
+  const munis = [...new Set(data.map(r=>r['Municipio']).filter(Boolean))].sort();
+  fillSelect('fMunicipio', munis);
+}
+
+function fillSelect(id, opts) {
+  const sel = document.getElementById(id); const cur = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  opts.forEach(o => { const opt = document.createElement('option'); opt.value = o; opt.textContent = o; sel.appendChild(opt); });
+  if (cur && [...sel.options].some(o=>o.value===cur)) sel.value = cur;
+}
+
+function applyFilters() {
+  let f = rawData;
+  const anio = document.getElementById('fAnio').value;
+  const entidad = document.getElementById('fEntidad').value;
+  const bien = document.getElementById('fBien').value;
+  const tipo = document.getElementById('fTipo').value;
+  const muni = hasMunicipio ? document.getElementById('fMunicipio').value : '';
+  if (anio) f = f.filter(r=>String(r['Año'])===anio);
+  if (entidad) f = f.filter(r=>r['Entidad']===entidad);
+  if (muni) f = f.filter(r=>r['Municipio']===muni);
+  if (bien) f = f.filter(r=>r['Bien jurídico afectado']===bien);
+  if (tipo) f = f.filter(r=>r['Tipo de delito']===tipo);
+  renderDashboard(f);
+}
+
+function resetFilters() {
+  ['fAnio','fEntidad','fMunicipio','fBien','fTipo'].forEach(id => document.getElementById(id).value = '');
+  if (hasMunicipio) updateMuniOptions(rawData);
+  renderDashboard(rawData);
+}
+
+// ══════════════════════════════════════════
+//  TOTAL ROW
+// ══════════════════════════════════════════
+function totalRow(r) { return MESES.reduce((s,m)=>s+(Number(r[m])||0),0); }
+
+function groupSum(rows, field) {
+  const acc = {};
+  rows.forEach(r => { const k = r[field]||'Sin clasificar'; acc[k]=(acc[k]||0)+r._total; });
+  return acc;
+}
+
+function topN(obj, n) { return Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,n); }
+
+// ══════════════════════════════════════════
+//  RENDER DASHBOARD
+// ══════════════════════════════════════════
+function renderDashboard(data) {
+  const rows = data.map(r=>({...r, _total:totalRow(r)}));
+  const grandTotal = rows.reduce((s,r)=>s+r._total,0);
+
+  // KPIs
+  document.getElementById('kpiTotal').textContent = grandTotal.toLocaleString('es-MX');
+  document.getElementById('kpiTotalSub').textContent = rows.length.toLocaleString()+' registros';
+
+  const byDelito = groupSum(rows,'Tipo de delito');
+  const topDel = topN(byDelito,1)[0];
+  document.getElementById('kpiTopDelito').textContent = topDel ? topDel[0] : '—';
+  document.getElementById('kpiTopDelitoSub').textContent = topDel ? topDel[1].toLocaleString('es-MX')+' casos' : '';
+
+  const byEntidad = groupSum(rows,'Entidad');
+  const topEnt = topN(byEntidad,1)[0];
+  document.getElementById('kpiTopEntidad').textContent = topEnt ? topEnt[0] : '—';
+  document.getElementById('kpiTopEntidadSub').textContent = topEnt ? topEnt[1].toLocaleString('es-MX')+' delitos' : '';
+
+  const byMes = {};
+  MESES.forEach(m => { byMes[m] = rows.reduce((s,r)=>s+(Number(r[m])||0),0); });
+  const topMesE = Object.entries(byMes).sort((a,b)=>b[1]-a[1])[0];
+  document.getElementById('kpiTopMes').textContent = topMesE ? topMesE[0] : '—';
+  document.getElementById('kpiTopMesSub').textContent = topMesE ? topMesE[1].toLocaleString('es-MX')+' delitos' : '';
+
+  const mConDatos = Object.values(byMes).filter(v=>v>0).length||1;
+  document.getElementById('kpiProm').textContent = Math.round(grandTotal/mConDatos).toLocaleString('es-MX');
+
+  // Charts
+  renderTendencia(byMes);
+  renderBienJuridico(groupSum(rows,'Bien jurídico afectado'));
+  renderTipoDelito(byDelito);
+  renderEntidades(byEntidad);
+  renderTable(byDelito, rows);
+  renderComparativo(rows);
+  if (document.getElementById('pane-mapa').classList.contains('active')) renderMap(rows);
+}
+
+// ══════════════════════════════════════════
+//  CHARTS
+// ══════════════════════════════════════════
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+Chart.defaults.color = '#7b7f9e';
+Chart.defaults.borderColor = '#252840';
+Chart.defaults.font.family = 'Figtree';
+
+function renderTendencia(byMes) {
+  destroyChart('tendencia');
+  const ctx = document.getElementById('cTendencia').getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,280);
+  grad.addColorStop(0,'rgba(232,69,60,.3)'); grad.addColorStop(1,'rgba(232,69,60,0)');
+  charts['tendencia'] = new Chart(ctx, { type:'line', data:{ labels:MESES.map(m=>m.slice(0,3)), datasets:[{ data:MESES.map(m=>byMes[m]||0), borderColor:'#e8453c', backgroundColor:grad, tension:0.4, fill:true, pointBackgroundColor:'#e8453c', pointRadius:4, pointHoverRadius:6, borderWidth:2.5 }] }, options:{ responsive:true, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c=>' '+c.parsed.y.toLocaleString('es-MX')+' delitos' } } }, scales:{ x:{grid:{color:'#1a1d2e'}}, y:{grid:{color:'#1a1d2e'}, ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}} } } });
+}
+
+function renderBienJuridico(byBien) {
+  destroyChart('bienJuridico');
+  const ctx = document.getElementById('cBienJuridico').getContext('2d');
+  const top = topN(byBien,8);
+  charts['bienJuridico'] = new Chart(ctx, { type:'doughnut', data:{ labels:top.map(([k])=>k.length>28?k.slice(0,28)+'…':k), datasets:[{ data:top.map(([,v])=>v), backgroundColor:PALETTE, borderColor:'#13151f', borderWidth:3, hoverOffset:8 }] }, options:{ responsive:true, cutout:'60%', plugins:{ legend:{ position:'bottom', labels:{boxWidth:10,padding:10,font:{size:10}} }, tooltip:{ callbacks:{ label:c=>' '+c.label+': '+c.parsed.toLocaleString('es-MX') } } } } });
+}
+
+function renderTipoDelito(byDelito) {
+  destroyChart('tipoDelito');
+  const ctx = document.getElementById('cTipoDelito').getContext('2d');
+  const top = topN(byDelito,10).reverse();
+  charts['tipoDelito'] = new Chart(ctx, { type:'bar', data:{ labels:top.map(([k])=>k.length>34?k.slice(0,34)+'…':k), datasets:[{ data:top.map(([,v])=>v), backgroundColor:top.map((_,i)=>i===top.length-1?'#e8453c':'#3b8cf8'), borderRadius:6, borderSkipped:false }] }, options:{ indexAxis:'y', responsive:true, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c=>' '+c.parsed.x.toLocaleString('es-MX')+' casos' } } }, scales:{ x:{grid:{color:'#1a1d2e'}, ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}}, y:{grid:{display:false}, ticks:{font:{size:10}}} } } });
+}
+
+function renderEntidades(byEntidad) {
+  destroyChart('entidades');
+  const ctx = document.getElementById('cEntidades').getContext('2d');
+  const top = topN(byEntidad,10);
+  const grad = ctx.createLinearGradient(0,0,0,380);
+  grad.addColorStop(0,'#f59e2e'); grad.addColorStop(1,'rgba(245,158,46,.2)');
+  charts['entidades'] = new Chart(ctx, { type:'bar', data:{ labels:top.map(([k])=>k.length>14?k.slice(0,14)+'…':k), datasets:[{ data:top.map(([,v])=>v), backgroundColor:grad, borderRadius:6, borderSkipped:false }] }, options:{ responsive:true, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c=>' '+c.parsed.y.toLocaleString('es-MX')+' delitos' } } }, scales:{ x:{grid:{display:false}, ticks:{font:{size:10}}}, y:{grid:{color:'#1a1d2e'}, ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}} } } });
+}
+
+// ══════════════════════════════════════════
+//  COMPARATIVO ANUAL
+// ══════════════════════════════════════════
+function renderComparativo(rows) {
+  // Build year → monthly totals
+  const byYear = {};
+  rows.forEach(r => {
+    const y = String(r['Año']); if (!y || y==='undefined') return;
+    if (!byYear[y]) byYear[y] = Array(12).fill(0);
+    MESES.forEach((m,i) => { byYear[y][i] += Number(r[m])||0; });
+  });
+  const years = Object.keys(byYear).sort();
+  if (!years.length) return;
+
+  // Line: monthly by year
+  destroyChart('comparativo');
+  const ctx1 = document.getElementById('cComparativo').getContext('2d');
+  const datasets1 = years.map((y,i) => ({
+    label: y, data: byYear[y], borderColor: YEAR_PALETTE[i%YEAR_PALETTE.length],
+    backgroundColor: 'transparent', tension:0.4, pointRadius:3, borderWidth:2.5
+  }));
+  charts['comparativo'] = new Chart(ctx1, {
+    type:'line',
+    data:{ labels:MESES.map(m=>m.slice(0,3)), datasets:datasets1 },
+    options:{ responsive:true, plugins:{ legend:{position:'top', labels:{boxWidth:10,padding:10,font:{size:10}}}, tooltip:{ callbacks:{ label:c=>' '+c.dataset.label+': '+c.parsed.y.toLocaleString('es-MX') } } }, scales:{ x:{grid:{color:'#1a1d2e'}}, y:{grid:{color:'#1a1d2e'}, ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}} } }
+  });
+
+  // Year badges
+  const badges = document.getElementById('yearBadges');
+  badges.innerHTML = years.map((y,i)=>`<div class="year-badge"><div class="dot" style="background:${YEAR_PALETTE[i%YEAR_PALETTE.length]}"></div>${y}</div>`).join('');
+
+  // Bar: total per year
+  destroyChart('anuales');
+  const ctx2 = document.getElementById('cAnuales').getContext('2d');
+  const yearTotals = years.map(y => byYear[y].reduce((a,b)=>a+b,0));
+  charts['anuales'] = new Chart(ctx2, {
+    type:'bar',
+    data:{ labels:years, datasets:[{ data:yearTotals, backgroundColor:years.map((_,i)=>YEAR_PALETTE[i%YEAR_PALETTE.length]), borderRadius:8, borderSkipped:false }] },
+    options:{ responsive:true, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c=>' '+c.parsed.y.toLocaleString('es-MX') } } }, scales:{ x:{grid:{display:false}}, y:{grid:{color:'#1a1d2e'}, ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}} } }
+  });
+
+  // Delta cards
+  const delta = document.getElementById('deltaCards');
+  delta.innerHTML = '';
+  years.forEach((y,i) => {
+    const total = yearTotals[i];
+    let changeHTML = '';
+    if (i > 0) {
+      const prev = yearTotals[i-1];
+      const pct = prev > 0 ? ((total-prev)/prev*100).toFixed(1) : 0;
+      const cls = pct > 0 ? 'up' : pct < 0 ? 'down' : 'neutral';
+      const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '─';
+      changeHTML = `<div class="delta-change ${cls}">${arrow} ${Math.abs(pct)}% vs ${years[i-1]}</div>`;
+    }
+    delta.innerHTML += `<div class="delta-item"><div class="delta-year">${y}</div><div class="delta-val">${total.toLocaleString('es-MX')}</div>${changeHTML}</div>`;
+  });
+
+  // Bar: top delitos by year (grouped)
+  destroyChart('delitoAnio');
+  const ctx3 = document.getElementById('cDelitoAnio').getContext('2d');
+  // Get top 6 delitos overall
+  const byDelito = {};
+  rows.forEach(r=>{ const k=r['Tipo de delito']||'Otros'; byDelito[k]=(byDelito[k]||0)+r._total; });
+  const top6 = topN(byDelito,6).map(([k])=>k);
+  const ds3 = years.map((y,i) => {
+    const yearRows = rows.filter(r=>String(r['Año'])===y);
+    const yd = groupSum(yearRows,'Tipo de delito');
+    return { label:y, data:top6.map(d=>yd[d]||0), backgroundColor:YEAR_PALETTE[i%YEAR_PALETTE.length]+'cc', borderRadius:4, borderSkipped:false };
+  });
+  charts['delitoAnio'] = new Chart(ctx3, {
+    type:'bar',
+    data:{ labels:top6.map(k=>k.length>30?k.slice(0,30)+'…':k), datasets:ds3 },
+    options:{ responsive:true, plugins:{ legend:{position:'top', labels:{boxWidth:10,padding:10,font:{size:10}}}, tooltip:{ callbacks:{ label:c=>' '+c.dataset.label+': '+c.parsed.y.toLocaleString('es-MX') } } }, scales:{ x:{grid:{display:false}, ticks:{font:{size:10}}}, y:{grid:{color:'#1a1d2e'}, ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}} } }
+  });
+}
+
+// ══════════════════════════════════════════
+//  HEAT MAP
+// ══════════════════════════════════════════
+function renderMap(rows) {
+  // Init Leaflet
+  if (!mapInstance) {
+    mapInstance = L.map('mapContainer', { zoomControl:true }).setView([23.6,-102.5],5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution:'© <a href="https://www.openstreetmap.org">OpenStreetMap</a> contributors',
+      maxZoom:18
+    }).addTo(mapInstance);
+
+    // Legend
+    const legend = L.control({ position:'bottomright' });
+    legend.onAdd = () => {
+      const div = L.DomUtil.create('div','map-legend');
+      div.innerHTML = '<h4>Intensidad delictiva</h4>' +
+        ['#e8453c','#f59e2e','#eab308','#22c55e'].map((c,i)=>{
+          const labels=['Muy alto','Alto','Medio','Bajo'];
+          return `<div class="legend-item"><div class="legend-dot" style="background:${c}"></div>${labels[i]}</div>`;
+        }).join('');
+      return div;
+    };
+    legend.addTo(mapInstance);
+  }
+
+  // Clear markers
+  mapMarkers.forEach(m=>m.remove()); mapMarkers=[];
+
+  // Group by location
+  const groupField = hasMunicipio ? 'Municipio' : 'Entidad';
+  const byLoc = {};
+  rows.forEach(r => {
+    const estado = r['Entidad']||'';
+    const muni = hasMunicipio ? (r['Municipio']||'') : estado;
+    const key = estado + '||' + muni;
+    if (!byLoc[key]) byLoc[key] = { estado, muni, total:0, delitos:{} };
+    byLoc[key].total += r._total;
+    const d = r['Tipo de delito']||'Sin clasificar';
+    byLoc[key].delitos[d] = (byLoc[key].delitos[d]||0)+r._total;
+  });
+
+  const vals = Object.values(byLoc).map(v=>v.total);
+  const maxVal = Math.max(...vals,1);
+
+  let rank = 0;
+  Object.values(byLoc).sort((a,b)=>b.total-a.total).forEach(loc => {
+    rank++;
+    const coords = hasMunicipio ? getCoords(loc.estado,loc.muni) : (STATE_CENTROIDS[norm(loc.estado)]||null);
+    if (!coords) return;
+    const intensity = loc.total/maxVal;
+    const color = intensity>0.7?'#e8453c':intensity>0.4?'#f59e2e':intensity>0.2?'#eab308':'#22c55e';
+    const radius = hasMunicipio ? 5+intensity*22 : 8+intensity*28;
+
+    const topDelito = topN(loc.delitos,1)[0];
+    const popupContent = `
+      <div class="popup-rank">#${rank} · ${hasMunicipio?loc.estado:'México'}</div>
+      <div class="popup-name">${loc.muni||loc.estado}</div>
+      <div class="popup-val">${loc.total.toLocaleString('es-MX')} delitos</div>
+      ${topDelito?`<div style="font-size:.75rem;color:#7b7f9e;margin-top:3px">Principal: ${topDelito[0]}</div>`:''}
+    `;
+
+    const marker = L.circleMarker(coords, {
+      radius, fillColor:color, color:'rgba(0,0,0,.4)', weight:1.5, fillOpacity:0.82
+    }).bindPopup(popupContent, { maxWidth:220 });
+    marker.addTo(mapInstance);
+    mapMarkers.push(marker);
+  });
+
+  // Zoom to state if filtered
+  const entidad = document.getElementById('fEntidad').value;
+  if (entidad) {
+    const bounds = STATE_BOUNDS[norm(entidad)];
+    if (bounds) mapInstance.fitBounds(bounds, { padding:[20,20] });
+  } else {
+    mapInstance.setView([23.6,-102.5],5);
+  }
+
+  setTimeout(()=>mapInstance.invalidateSize(),150);
+
+  const note = document.getElementById('mapNote');
+  const muni = hasMunicipio ? document.getElementById('fMunicipio').value : '';
+  note.textContent = hasMunicipio
+    ? `Mostrando ${Object.keys(byLoc).length} municipios` + (entidad ? ` · ${entidad}` : '') + (muni ? ` · ${muni}` : '')
+    : `Nivel estatal · ${Object.keys(byLoc).length} entidades`;
+  document.getElementById('mapSubtitle').textContent = hasMunicipio ? 'Intensidad por municipio' : 'Intensidad por entidad federativa';
+}
+
+// ══════════════════════════════════════════
+//  TABLE
+// ══════════════════════════════════════════
+function renderTable(byDelito, rows) {
+  const top = topN(byDelito,15);
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  top.forEach(([delito,total],i) => {
+    const sample = rows.find(r=>r['Tipo de delito']===delito);
+    const bien = sample?(sample['Bien jurídico afectado']||'—'):'—';
+    const topMuni = hasMunicipio ? (() => { const m=groupSum(rows.filter(r=>r['Tipo de delito']===delito),'Municipio'); const t=topN(m,1)[0]; return t?t[0]:'—'; })() : '';
+    tbody.innerHTML += `<tr>
+      <td><span class="rank-badge${i<3?' top':''}">${i+1}</span></td>
+      <td>${delito}</td>
+      <td style="color:var(--muted)">${bien}</td>
+      ${hasMunicipio?`<td style="color:var(--muted)">${topMuni}</td>`:''}
+      <td class="mono">${total.toLocaleString('es-MX')}</td>
+    </tr>`;
+  });
+  document.getElementById('tableSubtitle').textContent = `Top ${top.length} delitos`;
+}
+
+// ══════════════════════════════════════════
+//  TABS
+// ══════════════════════════════════════════
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('pane-'+name).classList.add('active');
+  if (name==='mapa' && rawData.length) {
+    const rows = getFilteredRows();
+    renderMap(rows);
+  }
+}
+
+function getFilteredRows() {
+  let f = rawData;
+  const anio=document.getElementById('fAnio').value;
+  const entidad=document.getElementById('fEntidad').value;
+  const bien=document.getElementById('fBien').value;
+  const tipo=document.getElementById('fTipo').value;
+  const muni=hasMunicipio?document.getElementById('fMunicipio').value:'';
+  if (anio) f=f.filter(r=>String(r['Año'])===anio);
+  if (entidad) f=f.filter(r=>r['Entidad']===entidad);
+  if (muni) f=f.filter(r=>r['Municipio']===muni);
+  if (bien) f=f.filter(r=>r['Bien jurídico afectado']===bien);
+  if (tipo) f=f.filter(r=>r['Tipo de delito']===tipo);
+  return f.map(r=>({...r,_total:totalRow(r)}));
+}
+
+// ══════════════════════════════════════════
+//  PDF EXPORT
+// ══════════════════════════════════════════
+function exportPDF() {
+  // Switch to resumen tab for printing
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.getElementById('pane-resumen').classList.add('active');
+  document.getElementById('pane-comparativo').classList.add('active');
+  setTimeout(()=>{
+    window.print();
+    // Restore state after print
+    setTimeout(()=>{
+      document.getElementById('pane-comparativo').classList.remove('active');
+    },500);
+  },300);
+}
+
+// ══════════════════════════════════════════
+//  UI HELPERS
+// ══════════════════════════════════════════
+function showLoading(show) { document.getElementById('loading').className=show?'loading-overlay show':'loading-overlay'; }
+let toastTimer;
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast show'+(type?' '+type:'');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',3500);
+}
+</script>
+</body>
+</html>
